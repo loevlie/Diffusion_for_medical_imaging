@@ -1,0 +1,5 @@
+*ct*
+data/
+venv/
+.claude/
+*.zip/
