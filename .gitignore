@@ -1,5 +1,8 @@
-*ct*
 data/
 venv/
 .claude/
 *.zip/
+checkpoints*
+results*
+*.png
+*.gif
