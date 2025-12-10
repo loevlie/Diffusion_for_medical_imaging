@@ -26,57 +26,9 @@ RSNA Intracranial Hemorrhage Detection dataset at `/media/M2SSD/gen_models_data/
 
 ## Files
 
-- `train_pddpm.py` - Custom PyTorch implementation with full control
-- `train_pddpm_diffusers.py` - Simplified version using HuggingFace Diffusers
-- `inference_pddpm.py` - Anomaly detection inference with evaluation metrics
-
-## Usage
-
-### Training (Diffusers version - recommended for getting started)
-
-```bash
-# Quick test with small subset
-python train_pddpm_diffusers.py --num_samples 1000 --epochs 20 --batch_size 8
-
-# Full training
-python train_pddpm_diffusers.py --num_samples 50000 --epochs 100 --batch_size 16
-```
-
-### Training (Custom PyTorch version)
-
-```bash
-python train_pddpm.py --num_samples 10000 --epochs 50 --batch_size 16
-```
-
-### Anomaly Detection
-
-```bash
-# Run detection on test set
-python train_pddpm_diffusers.py --mode detect --checkpoint ./checkpoints_diffusers/best_model.pt
-
-# Or with custom implementation
-python inference_pddpm.py --checkpoint ./checkpoints/best_model.pt
-```
-
-### Parameters
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `--data_dir` | `/media/M2SSD/gen_models_data` | Path to RSNA dataset |
-| `--image_size` | 256 | Image size (square) |
-| `--batch_size` | 16 | Training batch size |
-| `--epochs` | 100 | Number of training epochs |
-| `--timesteps` | 1000 | Diffusion timesteps |
-| `--noise_level` | 400 | Test-time noise level (pDDPM) |
-| `--patch_size` | 60 | Patch size for pDDPM inference |
-
-## Results
-
-The anomaly detection outputs:
-- **ROC-AUC**: Area under ROC curve (higher is better)
-- **PR-AUC**: Area under Precision-Recall curve
-- **Anomaly maps**: Pixel-wise visualization of detected anomalies
-- **Score distributions**: Comparison of healthy vs hemorrhage scores
+- `train_from_scratch.py` - trians from scratch
+- `train_from_pretrained.py` - Initializes weights using HuggingFace Diffusers
+- `evaluate_patched_onestep.py` - Anomaly detection inference with evaluation metrics
 
 ## Requirements
 
