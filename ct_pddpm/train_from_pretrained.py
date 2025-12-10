@@ -1,16 +1,16 @@
 """
-Patched Diffusion Model (pDDPM) for Unsupervised Anomaly Detection in Brain CT
-===============================================================================
+Patched Diffusion Model (pDDPM) - Training FROM HUGGINGFACE PRETRAINED MODEL
+=============================================================================
 
 Based on: "Patched Diffusion Models for Unsupervised Anomaly Detection in Brain MRI"
 (Behrendt et al., MIDL 2023) - arXiv:2303.03758
 
-Key idea: Train DDPM on healthy CT scans only. At inference, noise patches and
-reconstruct - anomalies (hemorrhages) will be "reconstructed" as healthy tissue,
-creating a difference map for anomaly detection.
+This version uses a pretrained UNet from HuggingFace Diffusers (e.g., google/ddpm-celebahq-256)
+and adapts it for grayscale CT brain scans by modifying the input/output channels.
 
 Usage:
-    python train_pddpm.py --data_dir /media/M2SSD/gen_models_data --num_samples 10000
+    python train_from_pretrained.py --data_dir /media/M2SSD/gen_models_data
+    python train_from_pretrained.py --hf_model google/ddpm-ema-celebahq-256 --data_dir /media/M2SSD/gen_models_data
 """
 
 import os
@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 
 
 # =============================================================================
-# CT Preprocessing (adapted from rsna_ct_preprocessing.py)
+# CT Preprocessing
 # =============================================================================
 
 def apply_window(image: np.ndarray, window_center: int, window_width: int) -> np.ndarray:
@@ -143,207 +143,80 @@ class CTDataset(Dataset):
 
 
 # =============================================================================
-# Model Architecture (UNet for Diffusion)
+# HuggingFace Model Adapter
 # =============================================================================
 
-class SinusoidalEmbedding(nn.Module):
-    """Sinusoidal time step embedding."""
-    def __init__(self, dim):
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, t):
-        device = t.device
-        half = self.dim // 2
-        freqs = torch.exp(-np.log(10000) * torch.arange(half, device=device) / half)
-        args = t[:, None].float() * freqs[None, :]
-        return torch.cat([args.sin(), args.cos()], dim=-1)
-
-
-class ResBlock(nn.Module):
-    """Residual block with time conditioning."""
-    def __init__(self, in_ch, out_ch, time_dim, dropout=0.1):
-        super().__init__()
-        self.time_mlp = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(time_dim, out_ch)
-        )
-        self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
-        self.conv2 = nn.Conv2d(out_ch, out_ch, 3, padding=1)
-        self.norm1 = nn.GroupNorm(min(8, in_ch), in_ch)
-        self.norm2 = nn.GroupNorm(min(8, out_ch), out_ch)
-        self.dropout = nn.Dropout(dropout)
-        self.skip = nn.Conv2d(in_ch, out_ch, 1) if in_ch != out_ch else nn.Identity()
-
-    def forward(self, x, t_emb):
-        h = F.silu(self.norm1(x))
-        h = self.conv1(h)
-        h = h + self.time_mlp(t_emb)[:, :, None, None]
-        h = F.silu(self.norm2(h))
-        h = self.dropout(h)
-        h = self.conv2(h)
-        return h + self.skip(x)
-
-
-class Attention(nn.Module):
-    """Self-attention block."""
-    def __init__(self, ch, num_heads=4):
-        super().__init__()
-        self.norm = nn.GroupNorm(min(8, ch), ch)
-        self.num_heads = num_heads
-        self.qkv = nn.Conv2d(ch, ch * 3, 1)
-        self.proj = nn.Conv2d(ch, ch, 1)
-
-    def forward(self, x):
-        b, c, h, w = x.shape
-        x_norm = self.norm(x)
-        qkv = self.qkv(x_norm).reshape(b, 3, self.num_heads, c // self.num_heads, h * w)
-        q, k, v = qkv[:, 0], qkv[:, 1], qkv[:, 2]
-
-        # Scaled dot-product attention
-        scale = (c // self.num_heads) ** -0.5
-        attn = torch.softmax(torch.einsum('bncd,bnce->bnde', q, k) * scale, dim=-1)
-        out = torch.einsum('bnde,bnce->bncd', attn, v)
-        out = out.reshape(b, c, h, w)
-
-        return x + self.proj(out)
-
-
-class UNet(nn.Module):
-    """UNet architecture for diffusion model.
-
-    Simplified and robust implementation with proper channel tracking.
+def adapt_unet_for_grayscale(unet):
     """
+    Adapt a pretrained RGB UNet (3 channels) for grayscale (1 channel).
 
-    def __init__(self,
-                 in_ch=1,
-                 out_ch=1,
-                 ch=64,
-                 ch_mult=(1, 2, 4, 8),
-                 num_res_blocks=2,
-                 attn_resolutions=(32, 16, 8),
-                 dropout=0.1):
-        super().__init__()
+    Strategy:
+    - Input: Average the 3 input channel weights to create 1 channel
+    - Output: Average the 3 output channel weights to create 1 channel
+    """
+    # Adapt input convolution (3 -> 1 channel)
+    old_conv_in = unet.conv_in
+    new_conv_in = nn.Conv2d(
+        1, old_conv_in.out_channels,
+        kernel_size=old_conv_in.kernel_size,
+        stride=old_conv_in.stride,
+        padding=old_conv_in.padding
+    )
 
-        self.in_ch = in_ch
-        self.ch = ch
-        self.ch_mult = ch_mult
-        self.num_res_blocks = num_res_blocks
-        time_dim = ch * 4
+    # Average the RGB weights to create grayscale weights
+    with torch.no_grad():
+        new_conv_in.weight.data = old_conv_in.weight.data.mean(dim=1, keepdim=True)
+        new_conv_in.bias.data = old_conv_in.bias.data.clone()
 
-        # Time embedding
-        self.time_embed = nn.Sequential(
-            SinusoidalEmbedding(ch),
-            nn.Linear(ch, time_dim),
-            nn.SiLU(),
-            nn.Linear(time_dim, time_dim),
-        )
+    unet.conv_in = new_conv_in
 
-        # Initial convolution
-        self.init_conv = nn.Conv2d(in_ch, ch, 3, padding=1)
+    # Adapt output convolution (3 -> 1 channel)
+    old_conv_out = unet.conv_out
+    new_conv_out = nn.Conv2d(
+        old_conv_out.in_channels, 1,
+        kernel_size=old_conv_out.kernel_size,
+        stride=old_conv_out.stride,
+        padding=old_conv_out.padding
+    )
 
-        # Build channel schedule
-        channels = [ch]
-        for mult in ch_mult:
-            channels.append(ch * mult)
+    # Average the RGB weights to create grayscale weights
+    with torch.no_grad():
+        new_conv_out.weight.data = old_conv_out.weight.data.mean(dim=0, keepdim=True)
+        new_conv_out.bias.data = old_conv_out.bias.data[:1].clone()
 
-        # Downsampling path
-        self.down_blocks = nn.ModuleList()
-        self.down_samples = nn.ModuleList()
+    unet.conv_out = new_conv_out
 
-        for i in range(len(ch_mult)):
-            in_c = channels[i]
-            out_c = channels[i + 1]
+    # Update config
+    unet.config['in_channels'] = 1
+    unet.config['out_channels'] = 1
 
-            blocks = nn.ModuleList()
-            for j in range(num_res_blocks):
-                blocks.append(ResBlock(in_c if j == 0 else out_c, out_c, time_dim, dropout))
+    return unet
 
-            self.down_blocks.append(blocks)
 
-            # Downsample except for last level
-            if i < len(ch_mult) - 1:
-                self.down_samples.append(nn.Conv2d(out_c, out_c, 3, stride=2, padding=1))
-            else:
-                self.down_samples.append(None)
+def load_pretrained_unet(model_id: str, device: str = 'cpu'):
+    """Load a pretrained UNet from HuggingFace and adapt for grayscale."""
+    from diffusers import UNet2DModel
 
-        # Middle blocks
-        mid_ch = channels[-1]
-        self.mid_block1 = ResBlock(mid_ch, mid_ch, time_dim, dropout)
-        self.mid_attn = Attention(mid_ch)
-        self.mid_block2 = ResBlock(mid_ch, mid_ch, time_dim, dropout)
+    print(f"Loading pretrained UNet from: {model_id}")
+    unet = UNet2DModel.from_pretrained(model_id)
 
-        # Upsampling path
-        self.up_blocks = nn.ModuleList()
-        self.up_samples = nn.ModuleList()
+    # Check if adaptation is needed
+    if unet.config.in_channels == 3:
+        print("Adapting RGB model (3 channels) -> Grayscale (1 channel)")
+        unet = adapt_unet_for_grayscale(unet)
+    elif unet.config.in_channels == 1:
+        print("Model already configured for grayscale (1 channel)")
+    else:
+        raise ValueError(f"Unexpected input channels: {unet.config.in_channels}")
 
-        rev_channels = list(reversed(channels))
-        for i in range(len(ch_mult)):
-            in_c = rev_channels[i]  # From previous level
-            skip_c = rev_channels[i + 1]  # Skip connection channel
-            out_c = rev_channels[i + 1]  # Output channel
+    unet = unet.to(device)
 
-            blocks = nn.ModuleList()
-            # First block takes concatenated input
-            blocks.append(ResBlock(in_c + skip_c, out_c, time_dim, dropout))
-            # Rest of blocks
-            for j in range(num_res_blocks - 1):
-                blocks.append(ResBlock(out_c, out_c, time_dim, dropout))
+    # Print model info
+    num_params = sum(p.numel() for p in unet.parameters() if p.requires_grad)
+    print(f"Model parameters: {num_params:,}")
+    print(f"Model sample size: {unet.config.sample_size}")
 
-            self.up_blocks.append(blocks)
-
-            # Upsample except for last level
-            if i < len(ch_mult) - 1:
-                self.up_samples.append(nn.ConvTranspose2d(out_c, out_c, 4, stride=2, padding=1))
-            else:
-                self.up_samples.append(None)
-
-        # Output
-        self.final = nn.Sequential(
-            nn.GroupNorm(min(8, ch), ch),
-            nn.SiLU(),
-            nn.Conv2d(ch, out_ch, 3, padding=1),
-        )
-
-    def forward(self, x, t):
-        t_emb = self.time_embed(t)
-        h = self.init_conv(x)
-
-        # Downsampling with skip connections
-        skips = [h]
-        for blocks, downsample in zip(self.down_blocks, self.down_samples):
-            for block in blocks:
-                h = block(h, t_emb)
-            skips.append(h)
-            if downsample is not None:
-                h = downsample(h)
-
-        # Remove last skip (it's just h before middle blocks)
-        skips = skips[:-1]
-
-        # Middle
-        h = self.mid_block1(h, t_emb)
-        h = self.mid_attn(h)
-        h = self.mid_block2(h, t_emb)
-
-        # Upsampling with skip connections
-        for blocks, upsample in zip(self.up_blocks, self.up_samples):
-            skip = skips.pop()
-
-            # Handle size mismatch
-            if h.shape[2:] != skip.shape[2:]:
-                h = F.interpolate(h, size=skip.shape[2:], mode='nearest')
-
-            # Concatenate skip connection
-            h = torch.cat([h, skip], dim=1)
-
-            for block in blocks:
-                h = block(h, t_emb)
-
-            if upsample is not None:
-                h = upsample(h)
-
-        return self.final(h)
+    return unet
 
 
 # =============================================================================
@@ -392,7 +265,13 @@ class NoiseScheduler:
     def sample_step(self, model, x, t, clip_denoised=True):
         """Reverse diffusion: denoise x from timestep t to t-1."""
         t_tensor = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
-        pred_noise = model(x, t_tensor)
+
+        # HuggingFace UNet returns a dict with 'sample' key
+        output = model(x, t_tensor)
+        if hasattr(output, 'sample'):
+            pred_noise = output.sample
+        else:
+            pred_noise = output
 
         alpha = self.alphas[t]
         alpha_cumprod = self.alphas_cumprod[t]
@@ -415,38 +294,6 @@ class NoiseScheduler:
 
 
 # =============================================================================
-# Patched DDPM (pDDPM) Utilities
-# =============================================================================
-
-def create_patch_mask(image_size: int, patch_size: int, patch_pos: Tuple[int, int]) -> torch.Tensor:
-    """Create a binary mask for the patch region.
-
-    Returns mask where 1 = patch region (to be noised), 0 = context (keep clean).
-    """
-    mask = torch.zeros(1, image_size, image_size)
-    y, x = patch_pos
-    mask[:, y:y+patch_size, x:x+patch_size] = 1.0
-    return mask
-
-
-def get_patch_positions(image_size: int, patch_size: int, stride: int) -> List[Tuple[int, int]]:
-    """Get all patch positions for tiled reconstruction."""
-    positions = []
-    for y in range(0, image_size - patch_size + 1, stride):
-        for x in range(0, image_size - patch_size + 1, stride):
-            positions.append((y, x))
-    return positions
-
-
-def sample_random_patch_position(image_size: int, patch_size: int) -> Tuple[int, int]:
-    """Sample a random patch position."""
-    max_pos = image_size - patch_size
-    y = random.randint(0, max_pos)
-    x = random.randint(0, max_pos)
-    return (y, x)
-
-
-# =============================================================================
 # Training
 # =============================================================================
 
@@ -456,7 +303,7 @@ def train(args):
 
     # Dataset
     csv_path = Path(args.data_dir) / "stage_2_train.csv"
-    dataset = CTDataset(
+    full_dataset = CTDataset(
         data_dir=args.data_dir,
         csv_path=str(csv_path),
         healthy_only=True,
@@ -465,28 +312,34 @@ def train(args):
         seed=args.seed
     )
 
-    dataloader = DataLoader(
-        dataset,
+    # Split into train/val
+    val_size = int(len(full_dataset) * args.val_split)
+    train_size = len(full_dataset) - val_size
+
+    generator = torch.Generator().manual_seed(args.seed)
+    train_dataset, val_dataset = torch.utils.data.random_split(
+        full_dataset, [train_size, val_size], generator=generator
+    )
+    print(f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
+
+    train_loader = DataLoader(
+        train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=True
     )
 
-    # Model
-    model = UNet(
-        in_ch=1,  # Standard training uses single channel
-        out_ch=1,
-        ch=args.base_channels,
-        ch_mult=(1, 2, 4, 8),
-        num_res_blocks=2,
-        attn_resolutions=(32, 16, 8),
-        dropout=args.dropout
-    ).to(device)
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+        pin_memory=True
+    )
 
-    # Count parameters
-    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Model parameters: {num_params:,}")
+    # Load pretrained model from HuggingFace
+    model = load_pretrained_unet(args.hf_model, device)
 
     # Scheduler
     scheduler = NoiseScheduler(
@@ -495,12 +348,12 @@ def train(args):
         device=device
     )
 
-    # Optimizer
+    # Optimizer (lower LR for fine-tuning)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
     # Learning rate scheduler
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=args.epochs * len(dataloader)
+        optimizer, T_max=args.epochs * len(train_loader)
     )
 
     # Output directory
@@ -508,13 +361,14 @@ def train(args):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Training loop
-    best_loss = float('inf')
+    best_val_loss = float('inf')
 
     for epoch in range(args.epochs):
+        # Training phase
         model.train()
-        total_loss = 0
+        total_train_loss = 0
 
-        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{args.epochs}")
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Train]")
         for images in pbar:
             images = images.to(device)
             batch_size = images.shape[0]
@@ -526,8 +380,13 @@ def train(args):
             noise = torch.randn_like(images)
             noisy = scheduler.add_noise(images, noise, t)
 
-            # Predict noise
-            pred = model(noisy, t)
+            # Predict noise (HuggingFace UNet returns dict)
+            output = model(noisy, t)
+            if hasattr(output, 'sample'):
+                pred = output.sample
+            else:
+                pred = output
+
             loss = F.mse_loss(pred, noise)
 
             # Backward
@@ -537,21 +396,54 @@ def train(args):
             optimizer.step()
             lr_scheduler.step()
 
-            total_loss += loss.item()
+            total_train_loss += loss.item()
             pbar.set_postfix({'loss': loss.item(), 'lr': optimizer.param_groups[0]['lr']})
 
-        avg_loss = total_loss / len(dataloader)
-        print(f"Epoch {epoch+1}/{args.epochs}, Average Loss: {avg_loss:.6f}")
+        avg_train_loss = total_train_loss / len(train_loader)
 
-        # Save checkpoint
-        if avg_loss < best_loss:
-            best_loss = avg_loss
+        # Validation phase
+        model.eval()
+        total_val_loss = 0
+
+        with torch.no_grad():
+            for images in tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.epochs} [Val]", leave=False):
+                images = images.to(device)
+                batch_size = images.shape[0]
+
+                # Sample random timesteps
+                t = torch.randint(0, scheduler.timesteps, (batch_size,), device=device)
+
+                # Add noise
+                noise = torch.randn_like(images)
+                noisy = scheduler.add_noise(images, noise, t)
+
+                # Predict noise
+                output = model(noisy, t)
+                if hasattr(output, 'sample'):
+                    pred = output.sample
+                else:
+                    pred = output
+
+                loss = F.mse_loss(pred, noise)
+                total_val_loss += loss.item()
+
+        avg_val_loss = total_val_loss / len(val_loader)
+
+        print(f"Epoch {epoch+1}/{args.epochs}, Train Loss: {avg_train_loss:.6f}, Val Loss: {avg_val_loss:.6f}")
+
+        # Save best checkpoint based on validation loss
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'loss': avg_loss,
+                'train_loss': avg_train_loss,
+                'val_loss': avg_val_loss,
+                'hf_model': args.hf_model,
+                'config': dict(model.config),
             }, output_dir / "best_model.pt")
+            print(f"  -> Saved new best model (val_loss: {avg_val_loss:.6f})")
 
         # Save periodic checkpoint
         if (epoch + 1) % args.save_every == 0:
@@ -559,13 +451,16 @@ def train(args):
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'loss': avg_loss,
+                'train_loss': avg_train_loss,
+                'val_loss': avg_val_loss,
+                'hf_model': args.hf_model,
+                'config': dict(model.config),
             }, output_dir / f"checkpoint_epoch_{epoch+1}.pt")
 
             # Generate samples
             generate_samples(model, scheduler, device, output_dir / f"samples_epoch_{epoch+1}.png")
 
-    print(f"Training complete! Best loss: {best_loss:.6f}")
+    print(f"Training complete! Best val loss: {best_val_loss:.6f}")
     return model, scheduler
 
 
@@ -599,34 +494,32 @@ def generate_samples(model, scheduler, device, output_path, num_samples=16):
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='Train pDDPM for CT Anomaly Detection')
+    parser = argparse.ArgumentParser(description='Train pDDPM from HuggingFace Pretrained Model')
+
+    # HuggingFace model
+    parser.add_argument('--hf_model', type=str, default='google/ddpm-ema-celebahq-256',
+                        help='HuggingFace model ID (e.g., google/ddpm-celebahq-256, google/ddpm-ema-celebahq-256)')
 
     # Data
     parser.add_argument('--data_dir', type=str, default='/media/M2SSD/gen_models_data',
                         help='Path to RSNA dataset')
-    parser.add_argument('--output_dir', type=str, default='./checkpoints',
+    parser.add_argument('--output_dir', type=str, default='./checkpoints_pretrained',
                         help='Output directory for checkpoints')
     parser.add_argument('--num_samples', type=int, default=None,
                         help='Number of training samples (None for all)')
     parser.add_argument('--image_size', type=int, default=256,
                         help='Image size')
 
-    # Model
-    parser.add_argument('--base_channels', type=int, default=64,
-                        help='Base channel count')
-    parser.add_argument('--dropout', type=float, default=0.1,
-                        help='Dropout rate')
-
     # Training
-    parser.add_argument('--epochs', type=int, default=100,
+    parser.add_argument('--epochs', type=int, default=50,
                         help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=16,
+    parser.add_argument('--batch_size', type=int, default=8,
                         help='Batch size')
-    parser.add_argument('--lr', type=float, default=1e-4,
-                        help='Learning rate')
+    parser.add_argument('--lr', type=float, default=1e-5,
+                        help='Learning rate (lower for fine-tuning)')
     parser.add_argument('--timesteps', type=int, default=1000,
                         help='Number of diffusion timesteps')
-    parser.add_argument('--schedule', type=str, default='cosine',
+    parser.add_argument('--schedule', type=str, default='linear',
                         choices=['linear', 'cosine'],
                         help='Noise schedule')
 
@@ -637,6 +530,8 @@ def main():
                         help='Random seed')
     parser.add_argument('--save_every', type=int, default=10,
                         help='Save checkpoint every N epochs')
+    parser.add_argument('--val_split', type=float, default=0.1,
+                        help='Fraction of data to use for validation (default: 0.1)')
 
     args = parser.parse_args()
 
