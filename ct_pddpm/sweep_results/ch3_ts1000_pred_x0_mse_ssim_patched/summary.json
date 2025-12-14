@@ -1,0 +1,20 @@
+{
+  "config": {
+    "channels": 3,
+    "timesteps": 1000,
+    "objective": "pred_x0",
+    "loss": "mse_ssim",
+    "train_style": "patched"
+  },
+  "best_roc_auc": 0.6832,
+  "final_roc_auc": 0.6748000000000001,
+  "best_epoch": 4,
+  "final_train_loss": 0.2172348906565623,
+  "all_roc_auc": [
+    0.6816,
+    0.6799999999999999,
+    0.666,
+    0.6832,
+    0.6748000000000001
+  ]
+}

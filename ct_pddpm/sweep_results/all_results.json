@@ -1,0 +1,562 @@
+[
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 1000,
+      "objective": "pred_x0",
+      "loss": "mse_ssim",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.7496,
+    "final_roc_auc": 0.626,
+    "best_epoch": 1,
+    "final_train_loss": 0.20262771023050294,
+    "all_roc_auc": [
+      0.7496,
+      0.6924,
+      0.7108,
+      0.6828000000000001,
+      0.626
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 300,
+      "objective": "pred_noise",
+      "loss": "mse",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.7428,
+    "final_roc_auc": 0.7072,
+    "best_epoch": 3,
+    "final_train_loss": 0.02753799950098536,
+    "all_roc_auc": [
+      0.7408,
+      0.7304,
+      0.7428,
+      0.7368,
+      0.7072
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 300,
+      "objective": "pred_noise",
+      "loss": "mse",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.7415999999999999,
+    "final_roc_auc": 0.7415999999999999,
+    "best_epoch": 5,
+    "final_train_loss": 9.76077834373421e-07,
+    "all_roc_auc": [
+      0.7348,
+      0.7315999999999999,
+      0.7395999999999999,
+      0.7336,
+      0.7415999999999999
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 300,
+      "objective": "pred_noise",
+      "loss": "mse_ssim",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.7415999999999999,
+    "final_roc_auc": 0.7415999999999999,
+    "best_epoch": 5,
+    "final_train_loss": 9.58183622487341e-07,
+    "all_roc_auc": [
+      0.7348,
+      0.7315999999999999,
+      0.7395999999999999,
+      0.7336,
+      0.7415999999999999
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 300,
+      "objective": "pred_noise",
+      "loss": "mse_ssim",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.7404000000000001,
+    "final_roc_auc": 0.7095999999999999,
+    "best_epoch": 1,
+    "final_train_loss": 0.027246389327137393,
+    "all_roc_auc": [
+      0.7404000000000001,
+      0.7296,
+      0.7368,
+      0.7388,
+      0.7095999999999999
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 1000,
+      "objective": "pred_noise",
+      "loss": "mse",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.736,
+    "final_roc_auc": 0.736,
+    "best_epoch": 5,
+    "final_train_loss": 8.805954076685257e-07,
+    "all_roc_auc": [
+      0.7303999999999999,
+      0.7275999999999999,
+      0.73,
+      0.7304,
+      0.736
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 1000,
+      "objective": "pred_noise",
+      "loss": "mse_ssim",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.7356,
+    "final_roc_auc": 0.7356,
+    "best_epoch": 5,
+    "final_train_loss": 8.979152157973649e-07,
+    "all_roc_auc": [
+      0.7303999999999999,
+      0.7275999999999999,
+      0.73,
+      0.7304,
+      0.7356
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 300,
+      "objective": "pred_noise",
+      "loss": "mse",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.7304,
+    "final_roc_auc": 0.7296,
+    "best_epoch": 2,
+    "final_train_loss": 0.0218623224174402,
+    "all_roc_auc": [
+      0.7224,
+      0.7304,
+      0.7256,
+      0.7292000000000001,
+      0.7296
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 300,
+      "objective": "pred_noise",
+      "loss": "mse_ssim",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.7284,
+    "final_roc_auc": 0.7208,
+    "best_epoch": 2,
+    "final_train_loss": 0.021940105328366134,
+    "all_roc_auc": [
+      0.726,
+      0.7284,
+      0.7204,
+      0.722,
+      0.7208
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 1000,
+      "objective": "pred_noise",
+      "loss": "mse_ssim",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.7108,
+    "final_roc_auc": 0.6988,
+    "best_epoch": 1,
+    "final_train_loss": 0.021550776842207405,
+    "all_roc_auc": [
+      0.7108,
+      0.708,
+      0.7020000000000001,
+      0.6968000000000001,
+      0.6988
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 1000,
+      "objective": "pred_noise",
+      "loss": "mse",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.708,
+    "final_roc_auc": 0.6976,
+    "best_epoch": 1,
+    "final_train_loss": 0.021775484899783485,
+    "all_roc_auc": [
+      0.708,
+      0.6868000000000001,
+      0.7068,
+      0.7068,
+      0.6976
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 300,
+      "objective": "pred_noise",
+      "loss": "mse",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.7068,
+    "final_roc_auc": 0.702,
+    "best_epoch": 4,
+    "final_train_loss": 1.7976107469775105e-06,
+    "all_roc_auc": [
+      0.7052,
+      0.7052,
+      0.7048000000000001,
+      0.7068,
+      0.702
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 300,
+      "objective": "pred_noise",
+      "loss": "mse_ssim",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.7068,
+    "final_roc_auc": 0.702,
+    "best_epoch": 1,
+    "final_train_loss": 1.9020296230746115e-06,
+    "all_roc_auc": [
+      0.7068,
+      0.7056,
+      0.7036000000000001,
+      0.7068,
+      0.702
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 1000,
+      "objective": "pred_x0",
+      "loss": "mse_ssim",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.704,
+    "final_roc_auc": 0.6888,
+    "best_epoch": 3,
+    "final_train_loss": 0.3012068491382773,
+    "all_roc_auc": [
+      0.7036,
+      0.6896,
+      0.704,
+      0.6944,
+      0.6888
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 1000,
+      "objective": "pred_noise",
+      "loss": "mse",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.7003999999999999,
+    "final_roc_auc": 0.6964000000000001,
+    "best_epoch": 1,
+    "final_train_loss": 2.090137126632117e-06,
+    "all_roc_auc": [
+      0.7003999999999999,
+      0.698,
+      0.7,
+      0.6988000000000001,
+      0.6964000000000001
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 1000,
+      "objective": "pred_noise",
+      "loss": "mse_ssim",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.7,
+    "final_roc_auc": 0.6964000000000001,
+    "best_epoch": 3,
+    "final_train_loss": 2.062467911592175e-06,
+    "all_roc_auc": [
+      0.6996,
+      0.6988000000000001,
+      0.7,
+      0.6988000000000001,
+      0.6964000000000001
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 1000,
+      "objective": "pred_x0",
+      "loss": "mse",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.6992,
+    "final_roc_auc": 0.6992,
+    "best_epoch": 5,
+    "final_train_loss": 0.03572965544180326,
+    "all_roc_auc": [
+      0.6771999999999999,
+      0.6900000000000001,
+      0.6944,
+      0.6928,
+      0.6992
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 1000,
+      "objective": "pred_x0",
+      "loss": "mse_ssim",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.6952,
+    "final_roc_auc": 0.69,
+    "best_epoch": 2,
+    "final_train_loss": 0.15348075839424535,
+    "all_roc_auc": [
+      0.6828000000000001,
+      0.6952,
+      0.63,
+      0.6856,
+      0.69
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 1000,
+      "objective": "pred_x0",
+      "loss": "mse",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.6896,
+    "final_roc_auc": 0.6699999999999999,
+    "best_epoch": 2,
+    "final_train_loss": 0.021846733544415547,
+    "all_roc_auc": [
+      0.6816000000000001,
+      0.6896,
+      0.6892,
+      0.6748000000000001,
+      0.6699999999999999
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 1000,
+      "objective": "pred_x0",
+      "loss": "mse_ssim",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.6832,
+    "final_roc_auc": 0.6748000000000001,
+    "best_epoch": 4,
+    "final_train_loss": 0.2172348906565623,
+    "all_roc_auc": [
+      0.6816,
+      0.6799999999999999,
+      0.666,
+      0.6832,
+      0.6748000000000001
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 1000,
+      "objective": "pred_noise",
+      "loss": "mse_ssim",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.6776,
+    "final_roc_auc": 0.45720000000000005,
+    "best_epoch": 1,
+    "final_train_loss": 0.026859404085796214,
+    "all_roc_auc": [
+      0.6776,
+      0.6416,
+      0.5656000000000001,
+      0.5404,
+      0.45720000000000005
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 1000,
+      "objective": "pred_noise",
+      "loss": "mse",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.6772,
+    "final_roc_auc": 0.43360000000000004,
+    "best_epoch": 1,
+    "final_train_loss": 0.026679721562486294,
+    "all_roc_auc": [
+      0.6772,
+      0.6704,
+      0.538,
+      0.4732,
+      0.43360000000000004
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 300,
+      "objective": "pred_x0",
+      "loss": "mse_ssim",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.6552,
+    "final_roc_auc": 0.642,
+    "best_epoch": 3,
+    "final_train_loss": 0.3097368214200011,
+    "all_roc_auc": [
+      0.6504,
+      0.6539999999999999,
+      0.6552,
+      0.6459999999999999,
+      0.642
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 300,
+      "objective": "pred_x0",
+      "loss": "mse_ssim",
+      "train_style": "patched"
+    },
+    "best_roc_auc": 0.6368,
+    "final_roc_auc": 0.6295999999999999,
+    "best_epoch": 2,
+    "final_train_loss": 0.21761729948050598,
+    "all_roc_auc": [
+      0.6195999999999999,
+      0.6368,
+      0.6288,
+      0.6348,
+      0.6295999999999999
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 300,
+      "objective": "pred_x0",
+      "loss": "mse",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.48239999999999994,
+    "final_roc_auc": 0.386,
+    "best_epoch": 3,
+    "final_train_loss": 0.0379895112662515,
+    "all_roc_auc": [
+      0.32320000000000004,
+      0.30079999999999996,
+      0.48239999999999994,
+      0.4244,
+      0.386
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 300,
+      "objective": "pred_x0",
+      "loss": "mse_ssim",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.43560000000000004,
+    "final_roc_auc": 0.3424,
+    "best_epoch": 1,
+    "final_train_loss": 0.15569337176202033,
+    "all_roc_auc": [
+      0.43560000000000004,
+      0.3892,
+      0.36319999999999997,
+      0.35119999999999996,
+      0.3424
+    ]
+  },
+  {
+    "config": {
+      "channels": 3,
+      "timesteps": 300,
+      "objective": "pred_x0",
+      "loss": "mse",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.42919999999999997,
+    "final_roc_auc": 0.4028,
+    "best_epoch": 2,
+    "final_train_loss": 0.02263045985190459,
+    "all_roc_auc": [
+      0.3908,
+      0.42919999999999997,
+      0.33999999999999997,
+      0.42719999999999997,
+      0.4028
+    ]
+  },
+  {
+    "config": {
+      "channels": 1,
+      "timesteps": 300,
+      "objective": "pred_x0",
+      "loss": "mse_ssim",
+      "train_style": "full"
+    },
+    "best_roc_auc": 0.3916,
+    "final_roc_auc": 0.3116,
+    "best_epoch": 1,
+    "final_train_loss": 0.20556867187495342,
+    "all_roc_auc": [
+      0.3916,
+      0.2996,
+      0.3412,
+      0.306,
+      0.3116
+    ]
+  }
+]
