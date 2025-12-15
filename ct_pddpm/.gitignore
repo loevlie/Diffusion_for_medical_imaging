@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Checkpoints and model files (too large for git)
+checkpoints*/
+*.pt
+*.pth
+
+# Data
+*.dcm
+*.csv
+
+# Output figures (can be regenerated)
+presentation_figures/
+*.png
+*.pdf
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

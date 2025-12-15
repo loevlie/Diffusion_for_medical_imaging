@@ -3,14 +3,18 @@ Patched Diffusion Model (pDDPM) Training for CT Hemorrhage Detection
 =====================================================================
 
 Patched training (like pDDPM paper):
-- 1 channel (brain window)
+- 1 channel (brain window) by default, or 3 channels with --pretrained
 - 1000 timesteps
 - pred_x0 objective
 - MSE + SSIM loss
 - Patched noising (noise only a patch, keep rest clean)
 
 Usage:
-    python train_patched.py --output_dir checkpoints_patched
+    # Train from scratch (1 channel):
+    python train_patched.py --output_dir checkpoints_scratch
+
+    # Train with pretrained HuggingFace model (3 channels):
+    python train_patched.py --pretrained --output_dir checkpoints_pretrained
 """
 
 import os
@@ -30,6 +34,37 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score, roc_curve
 import matplotlib.pyplot as plt
+
+# HuggingFace diffusers (for pretrained models)
+try:
+    from diffusers import UNet2DModel
+    HAS_DIFFUSERS = True
+except ImportError:
+    HAS_DIFFUSERS = False
+
+
+# =============================================================================
+# Pretrained Model Loading
+# =============================================================================
+
+def load_pretrained_model(hf_model: str = "google/ddpm-ema-celebahq-256", device: str = "cuda"):
+    """Load a pretrained diffusion model from HuggingFace.
+
+    Args:
+        hf_model: HuggingFace model identifier
+        device: Device to load model on
+
+    Returns:
+        model: Pretrained UNet2DModel (expects 3 channels, outputs 3 channels)
+    """
+    if not HAS_DIFFUSERS:
+        raise RuntimeError("diffusers library not installed. Run: pip install diffusers")
+
+    print(f"Loading pretrained model: {hf_model}")
+    model = UNet2DModel.from_pretrained(hf_model)
+    model = model.to(device)
+    print(f"Pretrained model loaded: {sum(p.numel() for p in model.parameters()):,} parameters")
+    return model
 
 
 # =============================================================================
@@ -102,8 +137,12 @@ def crop_brain_region(image, threshold=0.1, margin=10):
     return image[y_min:y_max, x_min:x_max]
 
 
-def load_and_preprocess_dicom(filepath: str, image_size: int = 256) -> Optional[np.ndarray]:
-    """Load DICOM, crop to brain region, and apply brain window only (1 channel)."""
+def load_and_preprocess_dicom(filepath: str, image_size: int = 256, num_channels: int = 1) -> Optional[np.ndarray]:
+    """Load DICOM, crop to brain region, and apply windowing.
+
+    Args:
+        num_channels: 1 for brain window only, 3 for brain/subdural/bone windows
+    """
     try:
         dcm = pydicom.dcmread(filepath)
         pixel_array = dcm.pixel_array.astype(np.float32)
@@ -112,19 +151,35 @@ def load_and_preprocess_dicom(filepath: str, image_size: int = 256) -> Optional[
         slope = float(getattr(dcm, 'RescaleSlope', 1))
         hu_image = pixel_array * slope + intercept
 
-        # Brain window only (W:80, L:40)
-        brain = apply_window(hu_image, 40, 80)
-
-        # Crop to brain region (remove black background)
-        brain_cropped = crop_brain_region(brain, threshold=0.05, margin=5)
-
         from PIL import Image
-        img = Image.fromarray((brain_cropped * 255).astype(np.uint8))
-        img = img.resize((image_size, image_size), Image.Resampling.LANCZOS)
-        ch = np.array(img).astype(np.float32) / 255.0
-        ch = ch * 2.0 - 1.0  # Normalize to [-1, 1]
 
-        return ch[np.newaxis, ...]  # (1, H, W)
+        if num_channels == 1:
+            # Brain window only (W:80, L:40)
+            brain = apply_window(hu_image, 40, 80)
+            brain_cropped = crop_brain_region(brain, threshold=0.05, margin=5)
+            img = Image.fromarray((brain_cropped * 255).astype(np.uint8))
+            img = img.resize((image_size, image_size), Image.Resampling.LANCZOS)
+            ch = np.array(img).astype(np.float32) / 255.0
+            ch = ch * 2.0 - 1.0  # Normalize to [-1, 1]
+            return ch[np.newaxis, ...]  # (1, H, W)
+        else:
+            # 3-channel: brain, subdural, bone windows (for pretrained RGB model)
+            brain = apply_window(hu_image, 40, 80)
+            subdural = apply_window(hu_image, 80, 200)
+            bone = apply_window(hu_image, 600, 2800)
+
+            # Crop based on brain window
+            brain_cropped = crop_brain_region(brain, threshold=0.05, margin=5)
+
+            channels = []
+            for windowed in [brain, subdural, bone]:
+                cropped = crop_brain_region(windowed, threshold=0.05, margin=5)
+                img = Image.fromarray((cropped * 255).astype(np.uint8))
+                img = img.resize((image_size, image_size), Image.Resampling.LANCZOS)
+                ch = np.array(img).astype(np.float32) / 255.0
+                ch = ch * 2.0 - 1.0
+                channels.append(ch)
+            return np.stack(channels, axis=0)  # (3, H, W)
     except Exception:
         return None
 
@@ -137,9 +192,10 @@ class CTDataset(Dataset):
     """Dataset for CT scans - loads only healthy scans for training."""
 
     def __init__(self, data_dir: str, csv_path: str, image_size: int = 256,
-                 num_samples: Optional[int] = None, seed: int = 42):
+                 num_samples: Optional[int] = None, seed: int = 42, num_channels: int = 1):
         self.data_dir = Path(data_dir) / "stage_2_train"
         self.image_size = image_size
+        self.num_channels = num_channels
 
         df = pd.read_csv(csv_path)
         df['sop_uid'] = df['ID'].apply(lambda x: x.split('_')[1])
@@ -166,7 +222,7 @@ class CTDataset(Dataset):
 
     def __getitem__(self, idx):
         uid = self.sop_uids[idx]
-        image = load_and_preprocess_dicom(str(self.data_dir / f"ID_{uid}.dcm"), self.image_size)
+        image = load_and_preprocess_dicom(str(self.data_dir / f"ID_{uid}.dcm"), self.image_size, self.num_channels)
         if image is None:
             return self.__getitem__(random.randint(0, len(self) - 1))
 
@@ -351,16 +407,18 @@ class NoiseScheduler:
 # =============================================================================
 
 @torch.no_grad()
-def one_step_denoise(model, noisy_image, t, scheduler, device):
+def one_step_denoise(model, noisy_image, t, scheduler, device, is_pretrained=False):
     """One-step denoising: model directly predicts x0."""
     t_tensor = torch.full((noisy_image.shape[0],), t, device=device, dtype=torch.long)
     output = model(noisy_image, t_tensor)
+    if is_pretrained:
+        output = output.sample
     return torch.clamp(output, -1, 1)
 
 
 @torch.no_grad()
 def get_anomaly_score(model, image_tensor, scheduler, device,
-                      patch_size=64, stride=32, noise_level=150):
+                      patch_size=64, stride=32, noise_level=150, is_pretrained=False):
     """Compute anomaly score using PATCHED reconstruction."""
     B, C, H, W = image_tensor.shape
     anomaly_map = torch.zeros((H, W), device=device)
@@ -379,7 +437,7 @@ def get_anomaly_score(model, image_tensor, scheduler, device,
             patched_input[:, :, y:y+patch_size, x:x+patch_size] = noisy_patch
 
             # Reconstruct
-            reconstructed = one_step_denoise(model, patched_input, noise_level, scheduler, device)
+            reconstructed = one_step_denoise(model, patched_input, noise_level, scheduler, device, is_pretrained)
             recon_patch = reconstructed[:, :, y:y+patch_size, x:x+patch_size]
             patch_error = torch.abs(original_patch - recon_patch).mean(dim=1).squeeze()
 
@@ -391,21 +449,14 @@ def get_anomaly_score(model, image_tensor, scheduler, device,
 
 
 def evaluate_anomaly_detection(model, scheduler, device, data_dir,
-                               num_samples=50, seed=42, output_dir=None, epoch=None):
-    """Evaluate anomaly detection ROC-AUC on a small test set."""
-    csv_path = Path(data_dir) / "stage_2_train.csv"
-    df = pd.read_csv(csv_path)
-    df['sop_uid'] = df['ID'].apply(lambda x: x.split('_')[1])
-    df['hemorrhage_type'] = df['ID'].apply(lambda x: x.split('_')[2])
-    df = df.drop_duplicates(subset=['sop_uid', 'hemorrhage_type'])
-    pivot = df.pivot(index='sop_uid', columns='hemorrhage_type', values='Label')
-
-    healthy_uids = pivot[pivot['any'] == 0].index.tolist()
-    hemorrhage_uids = pivot[pivot['any'] == 1].index.tolist()
-
+                               test_healthy_uids, test_hemorrhage_uids,
+                               num_samples=50, seed=42, output_dir=None, epoch=None,
+                               num_channels=1, is_pretrained=False):
+    """Evaluate anomaly detection ROC-AUC on held-out test set (no leakage)."""
+    # Sample from the held-out UIDs (not from full CSV)
     random.seed(seed + 1000)
-    test_healthy = random.sample(healthy_uids, min(num_samples, len(healthy_uids)))
-    test_hemorrhage = random.sample(hemorrhage_uids, min(num_samples, len(hemorrhage_uids)))
+    test_healthy = random.sample(test_healthy_uids, min(num_samples, len(test_healthy_uids)))
+    test_hemorrhage = random.sample(test_hemorrhage_uids, min(num_samples, len(test_hemorrhage_uids)))
 
     dicom_dir = Path(data_dir) / "stage_2_train"
     scores, labels = [], []
@@ -419,12 +470,12 @@ def evaluate_anomaly_detection(model, scheduler, device, data_dir,
         if not filepath.exists():
             continue
 
-        image = load_and_preprocess_dicom(str(filepath), 256)
+        image = load_and_preprocess_dicom(str(filepath), 256, num_channels=num_channels)
         if image is None:
             continue
 
         image_tensor = torch.tensor(image).unsqueeze(0).to(device)
-        score = get_anomaly_score(model, image_tensor, scheduler, device)
+        score = get_anomaly_score(model, image_tensor, scheduler, device, is_pretrained=is_pretrained)
         scores.append(score)
         labels.append(label)
 
@@ -529,8 +580,51 @@ def train(args):
     print(f"Device: {device}")
     print(f"Training Mode: PATCHED (pDDPM style)")
 
+    # Set number of channels based on pretrained flag
+    num_channels = 3 if args.pretrained else 1
+    print(f"Using {'pretrained' if args.pretrained else 'scratch'} model with {num_channels} channels")
+
     csv_path = Path(args.data_dir) / "stage_2_train.csv"
-    dataset = CTDataset(args.data_dir, str(csv_path), num_samples=args.num_samples, seed=args.seed)
+    dicom_dir = Path(args.data_dir) / "stage_2_train"
+
+    # --- Build held-out test UIDs FIRST (no leakage) ---
+    df = pd.read_csv(csv_path)
+    df['sop_uid'] = df['ID'].apply(lambda x: x.split('_')[1])
+    df['hemorrhage_type'] = df['ID'].apply(lambda x: x.split('_')[2])
+    df = df.drop_duplicates(subset=['sop_uid', 'hemorrhage_type'])
+    pivot = df.pivot(index='sop_uid', columns='hemorrhage_type', values='Label')
+
+    all_healthy = pivot[pivot['any'] == 0].index.tolist()
+    all_hemorrhage = pivot[pivot['any'] == 1].index.tolist()
+
+    # Filter to existing files
+    all_healthy = [u for u in all_healthy if (dicom_dir / f"ID_{u}.dcm").exists()]
+    all_hemorrhage = [u for u in all_hemorrhage if (dicom_dir / f"ID_{u}.dcm").exists()]
+
+    # Shuffle deterministically
+    rng = random.Random(args.seed + 999)
+    rng.shuffle(all_healthy)
+    rng.shuffle(all_hemorrhage)
+
+    # Hold out UIDs for test (these will NEVER be used in training)
+    n_test_healthy = min(500, len(all_healthy))
+    n_test_hemorrhage = min(500, len(all_hemorrhage))
+
+    test_healthy_uids = all_healthy[:n_test_healthy]
+    test_hemorrhage_uids = all_hemorrhage[:n_test_hemorrhage]
+    train_healthy_pool = all_healthy[n_test_healthy:]  # Remaining for training
+
+    print(f"Held-out test: {len(test_healthy_uids)} healthy, {len(test_hemorrhage_uids)} hemorrhage")
+    print(f"Training pool: {len(train_healthy_pool)} healthy UIDs available")
+
+    # --- Create dataset using only training pool ---
+    dataset = CTDataset(args.data_dir, str(csv_path), num_samples=args.num_samples,
+                        seed=args.seed, num_channels=num_channels)
+
+    # Remove any held-out test UIDs from dataset (surgical fix)
+    test_healthy_set = set(test_healthy_uids)
+    dataset.sop_uids = [u for u in dataset.sop_uids if u not in test_healthy_set]
+    print(f"After removing held-out UIDs: {len(dataset.sop_uids)} training samples")
 
     val_size = int(len(dataset) * 0.1)
     train_size = len(dataset) - val_size
@@ -543,7 +637,13 @@ def train(args):
 
     print(f"Train: {len(train_ds)}, Val: {len(val_ds)}")
 
-    model = UNet(in_ch=1, out_ch=1, ch=64, ch_mult=(1, 2, 4, 8), dropout=0.1).to(device)
+    # Create model - pretrained or scratch
+    if args.pretrained:
+        model = load_pretrained_model(args.hf_model, device)
+        is_pretrained = True
+    else:
+        model = UNet(in_ch=1, out_ch=1, ch=64, ch_mult=(1, 2, 4, 8), dropout=0.1).to(device)
+        is_pretrained = False
 
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Parameters: {num_params:,}")
@@ -592,21 +692,20 @@ def train(args):
                 ).squeeze(0)
 
             # Predict x0 (clean image)
-            pred_x0 = model(noisy, t)
+            output = model(noisy, t)
+            pred_x0 = output.sample if is_pretrained else output
             pred_x0 = torch.clamp(pred_x0, -1, 1)
 
-            # Loss only on the noised patches
-            mse_loss = 0
-            ssim_loss_val = 0
+            # Loss only on the noised patches (MSE + SSIM)
+            loss = 0
             for i, (y, x) in enumerate(patch_coords):
                 pred_patch = pred_x0[i:i+1, :, y:y+patch_size, x:x+patch_size]
                 orig_patch = images[i:i+1, :, y:y+patch_size, x:x+patch_size]
-                mse_loss += F.mse_loss(pred_patch, orig_patch)
-                ssim_loss_val += ssim_loss(pred_patch, orig_patch)
+                mse = F.mse_loss(pred_patch, orig_patch)
+                ssim = ssim_loss(pred_patch, orig_patch)
+                loss += mse + 0.1 * ssim  # Combined loss
 
-            mse_loss /= B
-            ssim_loss_val /= B
-            loss = mse_loss + ssim_loss_val
+            loss /= B
 
             optimizer.zero_grad()
             loss.backward()
@@ -642,7 +741,8 @@ def train(args):
                         patched_input[:, :, y:y+patch_size, x:x+patch_size] = noisy_patch
 
                         t_tensor = torch.full((B,), noise_level, device=device, dtype=torch.long)
-                        x0_pred = model(patched_input, t_tensor)
+                        output = model(patched_input, t_tensor)
+                        x0_pred = output.sample if is_pretrained else output
                         x0_pred = torch.clamp(x0_pred, -1, 1)
 
                         reconstructed[:, :, y:y+patch_size, x:x+patch_size] += x0_pred[:, :, y:y+patch_size, x:x+patch_size]
@@ -654,11 +754,14 @@ def train(args):
 
         val_loss /= len(val_loader)
 
-        print(f"  Evaluating anomaly detection...")
+        print(f"  Evaluating anomaly detection (on held-out test set)...")
         roc_auc, healthy_mean, hemorrhage_mean = evaluate_anomaly_detection(
             model, scheduler, device, args.data_dir,
+            test_healthy_uids=test_healthy_uids,
+            test_hemorrhage_uids=test_hemorrhage_uids,
             num_samples=args.eval_samples, seed=args.seed,
-            output_dir=output_dir, epoch=epoch+1
+            output_dir=output_dir, epoch=epoch+1,
+            num_channels=num_channels, is_pretrained=is_pretrained
         )
 
         history['train_loss'].append(train_loss)
@@ -705,6 +808,10 @@ def main():
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--eval_samples', type=int, default=50)
+    parser.add_argument('--pretrained', action='store_true',
+                        help='Use pretrained HuggingFace model (3 channels)')
+    parser.add_argument('--hf_model', type=str, default='google/ddpm-ema-celebahq-256',
+                        help='HuggingFace model to use when --pretrained is set')
     args = parser.parse_args()
 
     random.seed(args.seed)
